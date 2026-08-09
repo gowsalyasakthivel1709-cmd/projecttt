@@ -637,7 +637,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (
-          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+          !/^[^s@]+@[^s@]+.[^s@]+$/.test(email)
         ) {
           return sendJson(res, 400, {
             error: "Invalid email address.",
@@ -765,9 +765,244 @@ const server = http.createServer(async (req, res) => {
     // ================================================================
 
     const candidateMatch = pathname.match(
-      /^\/api\/candidates\/([^/]+)$/
+      /^/api/candidates/([^/]+)$/
     );
 
     if (candidateMatch && method === "GET") {
+      const candidateId = candidateMatch[1];
       const candidate = candidates.find(
-        (item) => i
+        (item) => item.id === candidateId
+      );
+
+      if (!candidate) {
+        return sendJson(res, 404, {
+          error: "Candidate not found.",
+        });
+      }
+
+      return sendJson(res, 200, {
+        candidate: {
+          id: candidate.id,
+          name: candidate.name,
+          jobRole: candidate.jobRole,
+          yearsExperience: candidate.yearsExperience,
+          missionsCompleted: candidate.missionsCompleted,
+          commitDays: candidate.commitDays,
+          score: candidate.score,
+          skippedTopics: candidate.skippedTopics,
+          strongTopics: candidate.strongTopics,
+          weakTopics: candidate.weakTopics,
+          curriculum: candidate.curriculum,
+        },
+      });
+    }
+
+    // ================================================================
+    // START INTERVIEW SESSION
+    // ================================================================
+
+    if (
+      pathname === "/api/interview/start" &&
+      method === "POST"
+    ) {
+      try {
+        const body = await readJsonBody(req);
+        const { candidateId } = body;
+
+        const candidate = candidates.find(
+          (item) => item.id === candidateId
+        );
+
+        if (!candidate) {
+          return sendJson(res, 404, {
+            error: "Candidate not found.",
+          });
+        }
+
+        const sessionId = uuid();
+        const session = createInterviewSession(sessionId, candidate);
+
+        return sendJson(res, 201, {
+          session: {
+            id: session.id,
+            candidateId: session.candidate.id,
+            candidateName: session.candidate.name,
+            plannedDays: session.plannedDays,
+          },
+        });
+      } catch (error) {
+        return sendJson(res, 400, {
+          error: "Invalid request body.",
+        });
+      }
+    }
+
+    // ================================================================
+    // GET NEXT QUESTION
+    // ================================================================
+
+    if (
+      pathname === "/api/interview/question" &&
+      method === "POST"
+    ) {
+      try {
+        const body = await readJsonBody(req);
+        const { sessionId } = body;
+
+        const session = sessions.get(sessionId);
+
+        if (!session) {
+          return sendJson(res, 404, {
+            error: "Session not found.",
+          });
+        }
+
+        const question = generateQuestion(session);
+
+        if (!question) {
+          return sendJson(res, 200, {
+            question: null,
+            completed: true,
+          });
+        }
+
+        session.questions.push(question);
+        session.questionCount += 1;
+
+        return sendJson(res, 200, {
+          question,
+          completed: false,
+        });
+      } catch (error) {
+        return sendJson(res, 400, {
+          error: "Invalid request body.",
+        });
+      }
+    }
+
+    // ================================================================
+    // SUBMIT ANSWER
+    // ================================================================
+
+    if (
+      pathname === "/api/interview/answer" &&
+      method === "POST"
+    ) {
+      try {
+        const body = await readJsonBody(req);
+        const { sessionId, answer } = body;
+
+        const session = sessions.get(sessionId);
+
+        if (!session) {
+          return sendJson(res, 404, {
+            error: "Session not found.",
+          });
+        }
+
+        if (!answer || typeof answer !== "string") {
+          return sendJson(res, 400, {
+            error: "Answer is required.",
+          });
+        }
+
+        const score = scoreAnswer(answer);
+        const lastQuestion = session.questions[session.questions.length - 1];
+
+        session.answers.push({
+          questionId: lastQuestion.topic,
+          answer,
+          score,
+        });
+
+        markDayCovered(session, lastQuestion.day);
+
+        return sendJson(res, 200, {
+          score,
+          feedback: score >= 7 ? "Great answer!" : "Keep practicing!",
+        });
+      } catch (error) {
+        return sendJson(res, 400, {
+          error: "Invalid request body.",
+        });
+      }
+    }
+
+    // ================================================================
+    // GET SESSION FEEDBACK
+    // ================================================================
+
+    if (
+      pathname === "/api/interview/feedback" &&
+      method === "GET"
+    ) {
+      const sessionId = url.searchParams.get("sessionId");
+
+      if (!sessionId) {
+        return sendJson(res, 400, {
+          error: "sessionId is required.",
+        });
+      }
+
+      const session = sessions.get(sessionId);
+
+      if (!session) {
+        return sendJson(res, 404, {
+          error: "Session not found.",
+        });
+      }
+
+      const feedback = buildFeedback(session);
+
+      return sendJson(res, 200, {
+        feedback,
+      });
+    }
+
+    // ================================================================
+    // GET INTERVIEW HISTORY
+    // ================================================================
+
+    if (
+      pathname === "/api/interview/history" &&
+      method === "GET"
+    ) {
+      const history = Array.from(sessions.values()).map((session) => ({
+        id: session.id,
+        candidateId: session.candidate.id,
+        candidateName: session.candidate.name,
+        questionCount: session.questionCount,
+        coveredDays: session.coveredDays.size,
+        averageScore: session.answers.length
+          ? session.answers.reduce((sum, a) => sum + a.score, 0) / session.answers.length
+          : 0,
+      }));
+
+      return sendJson(res, 200, {
+        history,
+      });
+    }
+
+    // ================================================================
+    // STATIC FILES
+    // ================================================================
+
+    serveStatic(req, res, pathname);
+
+  } catch (error) {
+    console.error("Server error:", error);
+
+    sendJson(res, 500, {
+      error: "Internal server error.",
+    });
+  }
+});
+
+// ---------------------------------------------------------------------
+// START SERVER
+// ---------------------------------------------------------------------
+
+server.listen(PORT, () => {
+  console.log(`Mock backend running at http://localhost:${PORT}`);
+  console.log(`Demo user: demo@interview.ai / demo1234`);
+});
