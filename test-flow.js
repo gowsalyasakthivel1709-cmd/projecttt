@@ -190,4 +190,117 @@ async function main() {
       );
 
       if (resp.data) {
-        console.log("   Response:",
+        console.log("   Response:", resp.data);
+      }
+
+      throw new Error(
+        `Interview request failed at answer ${q}`
+      );
+    }
+
+    if (resp.data && resp.data.done) {
+      const score =
+        resp.data.feedback &&
+        typeof resp.data.feedback.overallScore !== "undefined"
+          ? resp.data.feedback.overallScore
+          : "N/A";
+
+      console.log(
+        `4) After answer ${q} → DONE. Overall score: ${score}/100`
+      );
+
+      done = true;
+      break;
+    }
+
+    const reply = resp.data && resp.data.reply
+      ? resp.data.reply
+      : "";
+
+    const nextQuestion = reply
+      .split("\n")
+      .filter(Boolean)
+      .pop();
+
+    console.log(
+      `   Q${q} submitted → next: ${(
+        nextQuestion || reply || "No reply"
+      ).slice(0, 100)}`
+    );
+
+    q++;
+  }
+
+  // ---------------------------------------------------------
+  // 5. Fetch progress
+  // ---------------------------------------------------------
+  const progress = await get(
+    "/api/interview/" + encodeURIComponent(sessionId)
+  );
+
+  if (progress.status !== 200) {
+    throw new Error(
+      `Failed to fetch progress. Status: ${progress.status}`
+    );
+  }
+
+  const questionCount =
+    progress.data.questionCount ?? 0;
+
+  const coveredDays =
+    Array.isArray(progress.data.coveredDays)
+      ? progress.data.coveredDays
+      : [];
+
+  console.log(
+    `5) Progress → questions: ${questionCount}, covered days: ${
+      coveredDays.length
+        ? coveredDays.join(", ")
+        : "none"
+    }`
+  );
+
+  // ---------------------------------------------------------
+  // 6. Fetch feedback
+  // ---------------------------------------------------------
+  const fb = await get(
+    "/api/interview/" +
+      encodeURIComponent(sessionId) +
+      "/feedback"
+  );
+
+  if (fb.status !== 200) {
+    throw new Error(
+      `Failed to fetch feedback. Status: ${fb.status}`
+    );
+  }
+
+  const feedback = fb.data.feedback || {};
+
+  console.log("6) Feedback detail →");
+
+  console.log(
+    "   Categories:",
+    JSON.stringify(feedback.categories || {})
+  );
+
+  console.log(
+    "   Q-wise entries:",
+    Array.isArray(fb.data.questionWisePerformance)
+      ? fb.data.questionWisePerformance.length
+      : 0
+  );
+
+  console.log("\n======================================");
+  console.log("✅ Full flow verified successfully!");
+  console.log("======================================");
+}
+
+// ---------------------------------------------------------
+// Run test
+// ---------------------------------------------------------
+
+main().catch((error) => {
+  console.error("\n❌ Test flow failed:", error.message);
+  process.exitCode = 1;
+});
