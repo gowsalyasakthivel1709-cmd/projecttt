@@ -13,7 +13,11 @@
   --danger: #ff5d7a;
   --radius: 14px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+html {
   font-size: 16px;
+  min-height: 100%;
 }
 
 * {
@@ -224,7 +228,7 @@ textarea::placeholder {
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  background: none;
+  background: transparent;
   border: none;
   color: var(--text-dim);
   font-size: 0.8rem;
